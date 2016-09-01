@@ -202,19 +202,20 @@ lazy val scioCore: Project = Project(
 lazy val scioTest: Project = Project(
   "scio-test",
   file("scio-test"),
-  settings = commonSettings ++ Seq(
+  settings = commonSettings ++ Defaults.itSettings ++ Seq(
     description := "Scio helpers for ScalaTest",
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % scalaTestVersion,
       // DataFlow testing requires junit and hamcrest
       "junit" % "junit" % junitVersion,
       "org.hamcrest" % "hamcrest-all" % hamcrestVersion
-    )
+    ),
+    addCompilerPlugin(paradiseDependency)
   )
 ).dependsOn(
   scioCore,
   scioSchemas % "test"
-)
+).configs(IntegrationTest)
 
 lazy val scioBigQuery: Project = Project(
   "scio-bigquery",
