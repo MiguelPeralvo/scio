@@ -19,6 +19,7 @@ package com.spotify.diffy
 
 import java.io.StringReader
 
+import com.fasterxml.jackson.databind.{ObjectMapper, SerializationFeature}
 import com.google.api.client.json.JsonObjectParser
 import com.google.api.client.json.jackson2.JacksonFactory
 import com.google.api.services.bigquery.model.{TableRow, TableSchema}
@@ -52,7 +53,9 @@ class ProtoBufDiffable[T <: GeneratedMessage : ClassTag](override val keyFn: T =
 class TableRowDiffable(override val keyFn: TableRow => String,
                        tableSchema: TableSchema) extends Diffable[TableRow] {
   // TableSchema is not serializable
-  private val schemaString: String = tableSchema.toPrettyString
+  private val schemaString: String =
+    new ObjectMapper().disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
+      .writeValueAsString(tableSchema)
   private lazy val schema: TableSchema =
     new JsonObjectParser(new JacksonFactory)
       .parseAndClose(new StringReader(schemaString), classOf[TableSchema])

@@ -22,6 +22,7 @@ import com.google.protobuf.GeneratedMessage
 import com.spotify.scio._
 import com.spotify.scio.bigquery.BigQueryClient
 import com.spotify.scio.values.SCollection
+import com.twitter.algebird._
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericRecord
 
@@ -37,11 +38,21 @@ case class KeyStats(key: String, diffType: DiffType.Value) {
   override def toString: String = s"$key\t$diffType"
 }
 
+case class DeltaStats(min: Double, max: Double, count: Long,
+                      mean: Double, variance: Double, stddev: Double,
+                      skewness: Double, kurtosis: Double)
+
 case class FieldStats(field: String,
                       numDiffRecords: Long,
                       numTotalRecords: Long,
-                      fraction: Double) {
-  override def toString: String = s"field\t$numDiffRecords\t$numTotalRecords\t$fraction"
+                      fraction: Double,
+                      deltaStats: Option[DeltaStats]) {
+  override def toString: String =
+    s"$field\t$numDiffRecords\t$numTotalRecords\t$fraction" +
+      deltaStats.map { d =>
+        s"\t${d.min}\t${d.max}\t${d.count}" +
+          s"\t${d.mean}\t${d.variance}\t${d.stddev}\t${d.skewness}\t${d.kurtosis}"
+      }.getOrElse("")
 }
 
 case class DiffResult(keyStats: SCollection[KeyStats],
@@ -51,7 +62,7 @@ object BigDiffy {
 
   def diff[T](lhs: SCollection[T], rhs: SCollection[T], d: Diffable[T]): DiffResult = {
     val lKeyed = lhs.map(t => (d.keyFn(t), ("l", t)))
-    val rKeyed = lhs.map(t => (d.keyFn(t), ("r", t)))
+    val rKeyed = rhs.map(t => (d.keyFn(t), ("r", t)))
 
     val deltas = (lKeyed ++ rKeyed)
       .groupByKey
@@ -67,22 +78,29 @@ object BigDiffy {
           }
       }
 
-    val keyStats = deltas
-      .filter(_._2._1 == DiffType.SAME)
-      .map { case (k, (_, dt)) =>
-        KeyStats(k, dt)
-      }
+    val keyStats = deltas.map { case (k, (_, dt)) => KeyStats(k, dt) }
 
     val fieldStats = deltas
       .map { case (_, (ds, dt)) =>
-        val m = mutable.Map.empty[String, Long]
-        ds.foreach(d => m(d.field) = 1L)
+        val m = mutable.Map.empty[String, (Long, Option[(Min[Double], Max[Double], Moments)])]
+        ds.foreach { d =>
+          val optD = d.delta.map { x =>
+            (Min(x), Max(x), Moments.aggregator.prepare(x))
+          }
+          m(d.field) = (1L, optD)
+        }
         (1L, m.toMap)
       }
       .sum
       .flatMap { case (total, fieldMap) =>
-        fieldMap.map { case (field, count) =>
-          FieldStats(field, count, total, count.toDouble / total)
+        fieldMap.map { case (field, (count, optD)) =>
+          val deltaStats = optD.map { d =>
+            val (min, max, m) = d
+            DeltaStats(min = min.get, max = max.get, count = m.count,
+              mean = m.mean, variance = m.variance, stddev = m.stddev,
+              skewness = m.skewness, kurtosis = m.kurtosis)
+          }
+          FieldStats(field, count, total, count.toDouble / total, deltaStats)
         }
       }
 
@@ -145,11 +163,11 @@ object BigDiffy {
 object BQBigDiffy {
   def main(cmdlineArgs: Array[String]): Unit = {
     val (sc, args) = ContextAndArgs(cmdlineArgs)
-    val lhs = "gabocontinuousintegration:neville_test_eu.ae71a"
-    val rhs = "gabocontinuousintegration:neville_test_eu.ae91a"
+    val lhs = "gabocontinuousintegration:neville_test_eu.ae0701"
+    val rhs = "gabocontinuousintegration:neville_test_eu.ae0901"
     val result = BigDiffy.diffTableRow(sc, lhs, rhs, _.get("artist_gid").toString)
-    result.keyStats.saveAsTextFile("gs://neville-gabo-eu/diff-keys")
-    result.fieldStats.saveAsTextFile("gs://neville-gabo-eu/diff-fields")
+    result.keyStats.saveAsTextFile("gs://neville-gabo-eu/diff2/keys")
+    result.fieldStats.saveAsTextFile("gs://neville-gabo-eu/diff2/fields")
     sc.close()
   }
 }
