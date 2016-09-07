@@ -41,6 +41,7 @@ val javaLshVersion = "0.10"
 val jodaConvertVersion = "1.8.1"
 val junitVersion = "4.12"
 val nettyTcNativeVersion = "1.1.33.Fork18"
+val ratatoolVersion = "0.1.7"
 val scalaCheckVersion = "1.13.2"
 val scalaMacrosVersion = "2.1.0"
 val scalapbVersion = "0.5.19" // inner protobuf-java version must match beam/dataflow-sdk one
@@ -262,12 +263,15 @@ lazy val scioExtra: Project = Project(
     description := "Scio extra utilities",
     libraryDependencies ++= Seq(
       "com.google.guava" % "guava" % guavaVersion,
+      "com.spotify" %% "ratatool" % ratatoolVersion,
       "com.twitter" %% "algebird-core" % algebirdVersion,
       "org.scalanlp" %% "breeze" % breezeVersion,
       "info.debatty" % "java-lsh" % javaLshVersion,
       "org.scalacheck" %% "scalacheck" % scalaCheckVersion % "test"
     )
   )
+).dependsOn(
+  scioCore
 )
 
 lazy val scioHdfs: Project = Project(
